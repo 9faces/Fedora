@@ -29,6 +29,7 @@ local UserInputService = game:GetService("UserInputService")
 local RunService       = game:GetService("RunService")
 local TweenService     = game:GetService("TweenService")
 local TextService      = game:GetService("TextService")
+local HttpService      = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -254,12 +255,41 @@ local function ShowCenterNotify(Title, Desc)
     end)
 end
 
--- the library 
+-- config system
+local Config = {}
+local ConfigFilePath = "fedora_ui_config.json"
+
+local function SaveConfig()
+    pcall(function()
+        if type(writefile) == "function" and type(HttpService) then
+            writefile(ConfigFilePath, HttpService:JSONEncode(Config))
+        end
+    end)
+end
+
+local function LoadConfig()
+    pcall(function()
+        if type(isfile) == "function" and type(readfile) == "function" and isfile(ConfigFilePath) then
+            local Data = readfile(ConfigFilePath)
+            if Data and Data ~= "" then
+                local Decoded = HttpService:JSONDecode(Data)
+                if type(Decoded) == "table" then
+                    for k, v in next, Decoded do Config[k] = v end
+                end
+            end
+        end
+    end)
+end
+
+LoadConfig()
+
+-- the library
 local Lib = {}
 
 function Lib:Window(Title)
     local Win = {}
     local Tabs = {}
+    local AllItems = {}
 
     local Gui = Make("ScreenGui", {
         Name = "FedoraUI", IgnoreGuiInset = true, ResetOnSpawn = false,
@@ -325,7 +355,7 @@ function Lib:Window(Title)
         Size = UDim2.new(1, -58, 0, 14), Position = UDim2.fromOffset(54, 32),
         BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 10,
         TextColor3 = Col.Muted, TextXAlignment = Enum.TextXAlignment.Left,
-        Text = "v1.0.0",
+        Text = "v1.1.0",
     }, Header)
     Make("Frame", {
         Size = UDim2.new(1, -24, 0, 1), Position = UDim2.fromOffset(12, 64),
@@ -353,11 +383,37 @@ function Lib:Window(Title)
         BackgroundTransparency = 1, BorderSizePixel = 0,
     }, Content)
     local TitleLbl = Make("TextLabel", {
-        Size = UDim2.new(1, -120, 1, 0), Position = UDim2.fromOffset(16, 0),
+        Size = UDim2.new(0, 160, 1, 0), Position = UDim2.fromOffset(16, 0),
         BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 15,
         TextColor3 = Col.Text, TextXAlignment = Enum.TextXAlignment.Left,
         Text = "Main",
     }, Topbar)
+
+    -- search bar (finds features across all tabs)
+    local SearchContainer = Make("Frame", {
+        Size = UDim2.new(0, 220, 0, 26),
+        Position = UDim2.new(1, -294, 0.5, -13),
+        BackgroundColor3 = Col.Panel2, BorderSizePixel = 0,
+    }, Topbar)
+    Corner(SearchContainer, 7)
+    Stroke(SearchContainer, Col.Line, 1)
+
+    local SearchIcon = Make("TextLabel", {
+        Size = UDim2.fromOffset(24, 26), Position = UDim2.fromOffset(2, 0),
+        BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+        TextSize = 13, TextColor3 = Col.Sub, Text = "o",
+    }, SearchContainer)
+
+    local SearchBox = Make("TextBox", {
+        Size = UDim2.new(1, -30, 1, 0), Position = UDim2.fromOffset(26, 0),
+        BackgroundTransparency = 1, Font = Enum.Font.Gotham,
+        TextSize = 12, TextColor3 = Col.Text,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        PlaceholderText = "Search features...",
+        PlaceholderColor3 = Col.Muted,
+        Text = "", ClearTextOnFocus = false,
+    }, SearchContainer)
+
     Make("Frame", {
         Size = UDim2.new(1, -32, 0, 1), Position = UDim2.fromOffset(16, 43),
         BackgroundColor3 = Col.Line, BorderSizePixel = 0,
@@ -382,6 +438,25 @@ function Lib:Window(Title)
         Size = UDim2.new(1, 0, 1, -44), Position = UDim2.fromOffset(0, 44),
         BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true,
     }, Content)
+
+    -- search results page
+    local SearchPage = Make("ScrollingFrame", {
+        Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+        BorderSizePixel = 0, ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Color3.fromRGB(90, 90, 90),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        Visible = false, ClipsDescendants = true,
+    }, PageHolder)
+    local SearchHolder = Make("Frame", {
+        Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1, BorderSizePixel = 0,
+    }, SearchPage)
+    Make("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, SearchHolder)
+    Make("UIPadding", {
+        PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 12),
+        PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12),
+    }, SearchHolder)
 
     local Dragging, DragStart, StartPos, LastMousePos, LastGoalPos = false, nil, nil, nil, nil
     local DragSpeed = 10
@@ -408,6 +483,15 @@ function Lib:Window(Title)
     Topbar.InputBegan:Connect(function(Input)
         if Input.UserInputType == Enum.UserInputType.MouseButton1
             or Input.UserInputType == Enum.UserInputType.Touch then
+            if Input.UserInputType == Enum.UserInputType.Touch then
+                local pos = Input.Position
+                if pos.X >= SearchContainer.AbsolutePosition.X
+                    and pos.X <= SearchContainer.AbsolutePosition.X + SearchContainer.AbsoluteSize.X
+                    and pos.Y >= SearchContainer.AbsolutePosition.Y
+                    and pos.Y <= SearchContainer.AbsolutePosition.Y + SearchContainer.AbsoluteSize.Y then
+                    return
+                end
+            end
             Dragging = true
             DragStart = Input.Position
             StartPos = Root.Position
@@ -462,7 +546,13 @@ function Lib:Window(Title)
     end)
 
     -- tab select ok
+    local CurrentTab = 1
+    local SearchActive = false
+
     local function Select(Index)
+        CurrentTab = Index
+        SearchActive = false
+        SearchPage.Visible = false
         for I, T in ipairs(Tabs) do
             local Active = (I == Index)
             TweenObj(T.Btn, TweenInfo.new(0.18), {
@@ -487,6 +577,90 @@ function Lib:Window(Title)
         if Current then TitleLbl.Text = Current.Name end
     end
     function Win:SelectTab(Index) Select(Index) end
+
+    -- search handling
+    local function RefreshSearch(Query)
+        Query = Query or ""
+        for _, child in ipairs(SearchHolder:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+
+        if Query == "" then
+            SearchPage.Visible = false
+            SearchActive = false
+            Select(CurrentTab)
+            return
+        end
+
+        SearchActive = true
+        for _, T in ipairs(Tabs) do T.Page.Visible = false end
+        SearchPage.Visible = true
+        TitleLbl.Text = "Search: " .. Query
+
+        local LowerQuery = Query:lower()
+        local Count = 0
+
+        for _, item in ipairs(AllItems) do
+            if item.SearchText and item.SearchText:lower():find(LowerQuery, 1, true) then
+                Count = Count + 1
+                local Row = Make("Frame", {
+                    Size = UDim2.new(1, 0, 0, 48),
+                    BackgroundColor3 = Col.Panel2, BorderSizePixel = 0,
+                    LayoutOrder = Count,
+                }, SearchHolder)
+                Corner(Row, 8)
+                Stroke(Row, Col.Line, 1)
+
+                Make("TextLabel", {
+                    Size = UDim2.new(1, -12, 0, 18), Position = UDim2.fromOffset(10, 6),
+                    BackgroundTransparency = 1, Font = Enum.Font.GothamBold,
+                    TextSize = 12, TextColor3 = Col.Text,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Text = item.Name,
+                }, Row)
+                Make("TextLabel", {
+                    Size = UDim2.new(1, -12, 0, 14), Position = UDim2.fromOffset(10, 24),
+                    BackgroundTransparency = 1, Font = Enum.Font.Gotham,
+                    TextSize = 10, TextColor3 = Col.Sub,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Text = item.TabName .. " / " .. item.SectionName,
+                }, Row)
+
+                local GoBtn = Make("TextButton", {
+                    Size = UDim2.fromOffset(50, 22),
+                    Position = UDim2.new(1, -60, 0.5, -11),
+                    BackgroundColor3 = Col.Accent, BorderSizePixel = 0,
+                    AutoButtonColor = false, Font = Enum.Font.GothamBold,
+                    TextSize = 10, TextColor3 = Col.Dark, Text = "Go",
+                }, Row)
+                Corner(GoBtn, 5)
+                GoBtn.MouseButton1Click:Connect(function()
+                    SearchBox.Text = ""
+                    local idx = 1
+                    for i, T in ipairs(Tabs) do
+                        if T == item.Tab then idx = i break end
+                    end
+                    Select(idx)
+                    if item.Focus then
+                        item.Focus()
+                    end
+                end)
+            end
+        end
+
+        if Count == 0 then
+            Make("TextLabel", {
+                Size = UDim2.new(1, 0, 0, 30),
+                BackgroundTransparency = 1, Font = Enum.Font.Gotham,
+                TextSize = 12, TextColor3 = Col.Muted,
+                Text = "no results lol",
+            }, SearchHolder)
+        end
+    end
+
+    SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        RefreshSearch(SearchBox.Text)
+    end)
 
     -- create a new tab
     function Win:Server(Name, IconText)
@@ -539,7 +713,10 @@ function Lib:Window(Title)
 
         local Tab = { Page = Page, Btn = Btn, Indicator = Indicator, Icon = IconLbl, Lbl = NameLbl, Name = Name }
         Tabs[Order] = Tab
-        Btn.MouseButton1Click:Connect(function() Select(Order) end)
+        Btn.MouseButton1Click:Connect(function()
+            SearchBox.Text = ""
+            Select(Order)
+        end)
 
         local SecCount = 0
         function Tab:Section(SecTitle)
@@ -583,8 +760,24 @@ function Lib:Window(Title)
             Sec.Body = Body
             local ItemCount = 0
 
+            local function RegisterItem(name, focus)
+                table.insert(AllItems, {
+                    Name = name,
+                    TabName = Tab.Name,
+                    SectionName = SecTitle,
+                    Tab = Tab,
+                    Focus = focus,
+                    SearchText = name .. " " .. Tab.Name .. " " .. SecTitle,
+                })
+            end
+
+            -- toggle
             function Sec:Toggle(Text, Default, Callback)
                 ItemCount = ItemCount + 1
+                local configKey = "cfg_" .. tostring(Tab.Name) .. "_" .. tostring(SecTitle) .. "_" .. tostring(Text)
+                local savedState = Config[configKey]
+                local startState = (savedState ~= nil) and savedState or Default
+
                 local Row = Make("Frame", {
                     Size = UDim2.new(1, 0, 0, 34),
                     BackgroundColor3 = Col.Panel2, BorderSizePixel = 0,
@@ -609,7 +802,7 @@ function Lib:Window(Title)
                 }, Pill)
                 Corner(Knob, 8)
 
-                local State = Default and true or false
+                local State = startState and true or false
                 local function Render()
                     TweenObj(Pill, TweenInfo.new(0.18, Enum.EasingStyle.Quart), {
                         BackgroundColor3 = State and Col.Accent or Col.Off,
@@ -628,21 +821,34 @@ function Lib:Window(Title)
                 Click.MouseButton1Click:Connect(function()
                     State = not State
                     Render()
+                    Config[configKey] = State
+                    SaveConfig()
                     if Callback then pcall(Callback, State) end
                 end)
+
+                RegisterItem(Text)
+
+                if Callback then pcall(Callback, State) end
 
                 return {
                     Set = function(V)
                         State = V and true or false
                         Render()
+                        Config[configKey] = State
+                        SaveConfig()
                         if Callback then pcall(Callback, State) end
                     end,
                     Get = function() return State end,
                 }
             end
 
+            -- slider
             function Sec:Slider(Text, Min, Max, Default, Callback)
                 ItemCount = ItemCount + 1
+                local configKey = "cfg_" .. tostring(Tab.Name) .. "_" .. tostring(SecTitle) .. "_" .. tostring(Text)
+                local savedVal = Config[configKey]
+                local startVal = (savedVal ~= nil) and savedVal or Default
+
                 local Row = Make("Frame", {
                     Size = UDim2.new(1, 0, 0, 50),
                     BackgroundColor3 = Col.Panel2, BorderSizePixel = 0,
@@ -660,7 +866,7 @@ function Lib:Window(Title)
                     BackgroundTransparency = 1, Font = Enum.Font.GothamMedium,
                     TextSize = 12, TextColor3 = Col.Sub,
                     TextXAlignment = Enum.TextXAlignment.Right,
-                    Text = tostring(Default),
+                    Text = tostring(startVal),
                 }, Row)
                 local Track = Make("Frame", {
                     Size = UDim2.new(1, -24, 0, 6), Position = UDim2.fromOffset(12, 32),
@@ -681,7 +887,7 @@ function Lib:Window(Title)
                 Corner(Knob, 7)
                 Stroke(Knob, Col.Bg, 2)
 
-                local Value = Default
+                local Value = startVal
                 local function Set(V, Fire)
                     V = math.clamp(V, Min, Max)
                     Value = V
@@ -691,7 +897,7 @@ function Lib:Window(Title)
                     ValLbl.Text = tostring(math.floor(V + 0.5))
                     if Fire and Callback then pcall(Callback, V) end
                 end
-                Set(Default, false)
+                Set(startVal, false)
 
                 local Drag = false
                 local function Update(Input)
@@ -719,11 +925,21 @@ function Lib:Window(Title)
                     if Drag then
                         Drag = false
                         Set(Value, true)
+                        Config[configKey] = Value
+                        SaveConfig()
                     end
                 end)
 
+                RegisterItem(Text)
+
+                if Callback then pcall(Callback, startVal) end
+
                 return {
-                    Set = function(V) Set(V, false) end,
+                    Set = function(V)
+                        Set(V, false)
+                        Config[configKey] = V
+                        SaveConfig()
+                    end,
                     Get = function() return Value end,
                 }
             end
@@ -741,7 +957,7 @@ function Lib:Window(Title)
                 }, Body)
             end
 
-            -- card (fancy avatar thing)
+            -- card
             function Sec:Card(ImageId, User, Desc)
                 ItemCount = ItemCount + 1
                 local Card = Make("Frame", {
@@ -791,6 +1007,10 @@ function Lib:Window(Title)
 
             function Sec:TextBox(Placeholder, Default, Callback)
                 ItemCount = ItemCount + 1
+                local configKey = "cfg_" .. tostring(Tab.Name) .. "_" .. tostring(SecTitle) .. "_" .. tostring(Placeholder)
+                local savedVal = Config[configKey]
+                local startVal = (savedVal ~= nil) and savedVal or (Default or "")
+
                 local Row = Make("Frame", {
                     Size = UDim2.new(1, 0, 0, 34),
                     BackgroundColor3 = Col.Panel2, BorderSizePixel = 0,
@@ -803,11 +1023,17 @@ function Lib:Window(Title)
                     TextSize = 13, TextColor3 = Col.Text,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     PlaceholderText = Placeholder, PlaceholderColor3 = Col.Muted,
-                    Text = Default or "",
+                    Text = startVal,
                 }, Row)
                 Box.FocusLost:Connect(function()
+                    Config[configKey] = Box.Text
+                    SaveConfig()
                     if Callback then pcall(Callback, Box.Text) end
                 end)
+
+                RegisterItem(Placeholder)
+
+                if Callback then pcall(Callback, startVal) end
                 return Box
             end
 
@@ -827,6 +1053,7 @@ function Lib:Window(Title)
                 Btn.MouseButton1Click:Connect(function()
                     if Callback then pcall(Callback) end
                 end)
+                RegisterItem(Text)
                 return Btn
             end
 
@@ -891,10 +1118,12 @@ function Lib:Window(Title)
                 }, Body)
             end
 
-            -- dropdown (basic but works)
+            -- dropdown
             function Sec:Dropdown(Text, Options, Default, Callback)
                 ItemCount = ItemCount + 1
-                local Selected = Default or (Options and Options[1]) or ""
+                local configKey = "cfg_" .. tostring(Tab.Name) .. "_" .. tostring(SecTitle) .. "_" .. tostring(Text)
+                local savedVal = Config[configKey]
+                local Selected = (savedVal ~= nil) and savedVal or (Default or (Options and Options[1]) or "")
                 local Open = false
                 local Row = Make("Frame", {
                     Size = UDim2.new(1, 0, 0, 34),
@@ -957,6 +1186,8 @@ function Lib:Window(Title)
                         Open = false
                         Row.Size = UDim2.new(1, 0, 0, 34)
                         Arrow.Text = "v"
+                        Config[configKey] = Opt
+                        SaveConfig()
                         if Callback then pcall(Callback, Opt) end
                     end)
                 end
@@ -972,18 +1203,23 @@ function Lib:Window(Title)
                     end
                 end)
 
+                RegisterItem(Text)
+
+                if Callback then pcall(Callback, Selected) end
+
                 return {
                     Get = function() return Selected end,
                     Set = function(V)
                         Selected = V
                         ValLbl.Text = tostring(V)
+                        Config[configKey] = V
+                        SaveConfig()
                         if Callback then pcall(Callback, V) end
                     end,
                 }
             end
 
             -- Create: build whatever the hell you want in here
-            -- callback gets a parent frame, do whatever idc
             function Sec:Create(Callback)
                 ItemCount = ItemCount + 1
                 local Container = Make("Frame", {
@@ -1024,6 +1260,10 @@ function Lib:Window(Title)
     end
     function Win:Destroy()
         Gui:Destroy()
+    end
+    function Win:ClearConfig()
+        Config = {}
+        SaveConfig()
     end
 
     return Win
